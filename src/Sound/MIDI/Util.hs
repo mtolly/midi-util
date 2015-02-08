@@ -1,16 +1,22 @@
 {-# LANGUAGE BangPatterns #-}
 {-# LANGUAGE GeneralizedNewtypeDeriving #-}
-module Sound.MIDI.Util
-( Beats(..), Seconds(..), BPS(..)
+module Sound.MIDI.Util (
+-- * Types
+  Beats(..), Seconds(..), BPS(..)
+-- * Reading\/writing MIDI files
 , decodeFile, encodeFileBeats, minResolution
+-- * Tempos
+, readTempo, showTempo
 , makeTempo, applyTempo, unapplyTempo, applyTempoTrack, unapplyTempoTrack
 , TempoMap, makeTempoMap, applyTempoMap, unapplyTempoMap
+-- * Measures and time signatures
+, readSignature, showSignature
 , MeasureMap, MeasureBeats, MeasureMode(..), measures, makeMeasureMap
 , applyMeasureMap, unapplyMeasureMap
-, readTempo, showTempo
-, readSignature, showSignature
+-- * Track names
 , trackName, setTrackName, readTrackName, showTrackName
-, trackSplitZero, trackJoinZero, trackTakeZero, trackDropZero
+-- * Misc. track operations
+, trackSplitZero, trackGlueZero, trackTakeZero, trackDropZero
 , trackJoin, trackSplit, trackTake, trackDrop
 ) where
 
@@ -68,15 +74,20 @@ newtype Seconds = Seconds { fromSeconds :: NN.Rational }
 newtype BPS = BPS { fromBPS :: NN.Rational }
   deriving (Eq, Ord, Show, Monoid, NNC.C, Num, Real, Fractional, RealFrac)
 
+-- | Creates a tempo as a ratio of a music duration to a real time duration.
 makeTempo :: Beats -> Seconds -> BPS
 makeTempo (Beats b) (Seconds s) = BPS $ b / s
 
+-- | Uses a tempo to convert from musical time to real time.
 applyTempo :: BPS -> Beats -> Seconds
 applyTempo (BPS bps) (Beats b) = Seconds $ b / bps
 
+-- | Uses a tempo to convert from real time to musical time.
 unapplyTempo :: BPS -> Seconds -> Beats
 unapplyTempo (BPS bps) (Seconds s) = Beats $ bps * s
 
+-- | Assigns units to the tracks in a MIDI file. Supports both the common
+-- ticks-based files as well as real-time SMPTE-encoded files.
 decodeFile :: F.T -> Either [RTB.T Beats E.T] [RTB.T Seconds E.T]
 decodeFile (F.Cons _typ dvn trks) = case dvn of
   F.Ticks res -> let
@@ -90,13 +101,15 @@ decodeFile (F.Cons _typ dvn trks) = case dvn of
       fromIntegral tks / (realFps * fromIntegral tksPerFrame)
     in Right $ map (RTB.mapTime readTime) trks
 
+-- | Encodes the tracks' beat positions in ticks, using the given resolution.
+-- Positions will be rounded if necessary; see 'minResolution'.
 encodeFileBeats :: F.Type -> Integer -> [RTB.T Beats E.T] -> F.T
 encodeFileBeats typ res
   = F.Cons typ (F.Ticks $ fromIntegral res)
   . map (RTB.discretize . RTB.mapTime (* fromIntegral res))
 
--- | To correctly encode all the given tracks, the resolution must be a
--- multiple of the returned number.
+-- | To correctly encode all the given tracks without rounding,
+-- the resolution must be a multiple of the returned number.
 minResolution :: [RTB.T Beats E.T] -> Integer
 minResolution
   = foldr lcm 1
@@ -151,6 +164,9 @@ showSignature (Beats sigLength) = let
       -- For prettiness we make the denominator at least /4,
       -- so for example 4/4 is not encoded as 1/1 even though it is simpler.
 
+-- | Should never happen. Signifies an internal error in the creation of a
+-- 'Map.Map': either there was no event at position 0, or the 'Map.Map' contains
+-- a 'LookupA' or 'LookupB'.
 translationError :: (Show t) => String -> t -> a
 translationError f t = error $
   "Sound.MIDI.Util." ++ f ++ ": internal error! couldn't translate position " ++ show t
@@ -191,6 +207,8 @@ unapplyTempoTrack tm
 -- and a measure offset plus a beat position.
 newtype MeasureMap = MeasureMap (Map.Map (DoubleKey Beats Int) Beats)
 
+-- | A number of measures (starting from 0), and an offset within that measure
+-- (also starting from 0).
 type MeasureBeats = (Int, Beats)
 
 -- | What to do when 'makeMeasureMap' finds a misaligned time signature?
@@ -200,9 +218,11 @@ data MeasureMode
   | Truncate -- ^ Truncate the previous measure.
   deriving (Eq, Ord, Show, Read, Enum, Bounded)
 
+-- | The duration of a number of measures in a given time signature.
 measures :: Int -> Beats -> Beats
 measures m b = fromIntegral m * b
 
+-- | Computes the measure map, given the tempo track from the MIDI.
 makeMeasureMap :: MeasureMode -> RTB.T Beats E.T -> MeasureMap
 makeMeasureMap mm = MeasureMap . Map.fromAscList . go 0 0 4 . RTB.mapMaybe readSignature where
   go :: Beats -> Int -> Beats -> RTB.T Beats Beats -> [(DoubleKey Beats Int, Beats)]
@@ -224,6 +244,7 @@ makeMeasureMap mm = MeasureMap . Map.fromAscList . go 0 0 4 . RTB.mapMaybe readS
           truncated = (DoubleKey (b + measures dm tsig) (m + dm), leftoverBeats)
           in truncated : go (b + db) (m + dm + 1) tsig' rtb'
 
+-- | Uses the measure map to compute which measure a beat position is in.
 applyMeasureMap :: MeasureMap -> Beats -> MeasureBeats
 applyMeasureMap (MeasureMap mm) bts = case Map.lookupLE (LookupA bts) mm of
   Just (DoubleKey b msr, tsig) -> let
@@ -232,34 +253,41 @@ applyMeasureMap (MeasureMap mm) bts = case Map.lookupLE (LookupA bts) mm of
     in (msr + msrs, leftover)
   _ -> translationError "applyMeasureMap" bts
 
+-- | Uses the measure map to convert a measures+beats position to just beats.
 unapplyMeasureMap :: MeasureMap -> MeasureBeats -> Beats
 unapplyMeasureMap (MeasureMap mm) (msr, bts) = case Map.lookupLE (LookupB msr) mm of
   Just (DoubleKey b m, tsig) -> b + fromIntegral (msr - m) * tsig + bts
   _ -> translationError "unapplyMeasureMap" (msr, bts)
 
+-- | Combines 'trackTakeZero' and 'trackDropZero'.
 trackSplitZero :: (NNC.C t) => RTB.T t a -> ([a], RTB.T t a)
 trackSplitZero rtb = case RTB.viewL rtb of
   Just ((dt, x), rtb') | dt == NNC.zero -> case trackSplitZero rtb' of
     (xs, rtb'') -> (x : xs, rtb'')
   _ -> ([], rtb)
 
-trackJoinZero :: (NNC.C t) => [a] -> RTB.T t a -> RTB.T t a
-trackJoinZero xs rtb = foldr (RTB.cons NNC.zero) rtb xs
+-- | Prepends the given events to the event list at position zero.
+trackGlueZero :: (NNC.C t) => [a] -> RTB.T t a -> RTB.T t a
+trackGlueZero xs rtb = foldr (RTB.cons NNC.zero) rtb xs
 
+-- | Returns the list of events at position zero of the event list.
 trackTakeZero :: (NNC.C t) => RTB.T t a -> [a]
 trackTakeZero = fst . trackSplitZero
 
+-- | Drops all events at position zero of the event list.
 trackDropZero :: (NNC.C t) => RTB.T t a -> (RTB.T t a)
 trackDropZero = snd . trackSplitZero
 
+-- | Looks for a track name event at position zero.
 trackName :: (NNC.C t) => RTB.T t E.T -> Maybe String
 trackName = listToMaybe . mapMaybe readTrackName . trackTakeZero
 
+-- | Removes any existing track name events at position zero and adds a new one.
 setTrackName :: (NNC.C t) => String -> RTB.T t E.T -> RTB.T t E.T
 setTrackName s rtb = case trackSplitZero rtb of
   (zero, rest) -> let
     zero' = showTrackName s : filter (isNothing . readTrackName) zero
-    in trackJoinZero zero' rest
+    in trackGlueZero zero' rest
 
 readTrackName :: E.T -> Maybe String
 readTrackName (E.MetaEvent (Meta.TrackName s)) = Just s
@@ -268,13 +296,14 @@ readTrackName _                                = Nothing
 showTrackName :: String -> E.T
 showTrackName = E.MetaEvent . Meta.TrackName
 
--- | Equivalent to 'Control.Monad.join', but 'RTB.T' doesn't have a 'Monad'
--- instance (presumably because 'RTB.merge' has an 'Ord' constraint).
+-- | Equivalent to 'Control.Monad.join', except 'RTB.T' doesn't have a 'Monad'
+-- instance, presumably because 'RTB.merge' has an 'Ord' constraint.
 trackJoin :: (NNC.C t, Ord a) => RTB.T t (RTB.T t a) -> RTB.T t a
 trackJoin rtb = case RTB.viewL rtb of
   Nothing -> RTB.empty
   Just ((dt, x), rtb') -> RTB.delay dt $ RTB.merge x $ trackJoin rtb'
 
+-- | Combines 'trackTake' and 'trackDrop'.
 trackSplit :: (NNC.C t) => t -> RTB.T t a -> (RTB.T t a, RTB.T t a)
 trackSplit t rtb = case RTB.viewL rtb of
   Nothing -> (RTB.empty, RTB.empty)
