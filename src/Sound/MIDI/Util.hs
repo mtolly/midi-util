@@ -9,7 +9,7 @@ module Sound.MIDI.Util
 , applyMeasureMap, unapplyMeasureMap
 , readTempo, showTempo
 , readSignature, showSignature
-, trackName, trackJoin, trackDrop
+, trackName, readTrackName, showTrackName, trackJoin, trackDrop
 ) where
 
 import qualified Data.Map as Map
@@ -242,9 +242,14 @@ splitZero rtb = case RTB.viewL rtb of
   _ -> ([], rtb)
 
 trackName :: (NNC.C t) => RTB.T t E.T -> Maybe String
-trackName = listToMaybe . mapMaybe isTrackName . fst . splitZero
-  where isTrackName (E.MetaEvent (Meta.TrackName s)) = Just s
-        isTrackName _                                = Nothing
+trackName = listToMaybe . mapMaybe readTrackName . fst . splitZero
+
+readTrackName :: E.T -> Maybe String
+readTrackName (E.MetaEvent (Meta.TrackName s)) = Just s
+readTrackName _                                = Nothing
+
+showTrackName :: String -> E.T
+showTrackName = E.MetaEvent . Meta.TrackName
 
 -- | Equivalent to 'Control.Monad.join', but 'RTB.T' doesn't have a 'Monad'
 -- instance (presumably because 'RTB.merge' has an 'Ord' constraint).
