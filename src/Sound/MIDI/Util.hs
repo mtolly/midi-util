@@ -9,12 +9,13 @@ module Sound.MIDI.Util
 , applyMeasureMap, unapplyMeasureMap
 , readTempo, showTempo
 , readSignature, showSignature
-, trackName, readTrackName, showTrackName
+, trackName, setTrackName, readTrackName, showTrackName
+, trackSplitZero, trackJoinZero, trackTakeZero, trackDropZero
 , trackJoin, trackSplit, trackTake, trackDrop
 ) where
 
 import qualified Data.Map as Map
-import Data.Maybe (listToMaybe, mapMaybe)
+import Data.Maybe (listToMaybe, mapMaybe, isNothing)
 import Data.Monoid (Monoid)
 import Data.Ratio (numerator, denominator)
 
@@ -236,14 +237,29 @@ unapplyMeasureMap (MeasureMap mm) (msr, bts) = case Map.lookupLE (LookupB msr) m
   Just (DoubleKey b m, tsig) -> b + fromIntegral (msr - m) * tsig + bts
   _ -> translationError "unapplyMeasureMap" (msr, bts)
 
-splitZero :: (NNC.C t) => RTB.T t a -> ([a], RTB.T t a)
-splitZero rtb = case RTB.viewL rtb of
-  Just ((dt, x), rtb') | dt == NNC.zero -> case splitZero rtb' of
+trackSplitZero :: (NNC.C t) => RTB.T t a -> ([a], RTB.T t a)
+trackSplitZero rtb = case RTB.viewL rtb of
+  Just ((dt, x), rtb') | dt == NNC.zero -> case trackSplitZero rtb' of
     (xs, rtb'') -> (x : xs, rtb'')
   _ -> ([], rtb)
 
+trackJoinZero :: (NNC.C t) => [a] -> RTB.T t a -> RTB.T t a
+trackJoinZero xs rtb = foldr (RTB.cons NNC.zero) rtb xs
+
+trackTakeZero :: (NNC.C t) => RTB.T t a -> [a]
+trackTakeZero = fst . trackSplitZero
+
+trackDropZero :: (NNC.C t) => RTB.T t a -> (RTB.T t a)
+trackDropZero = snd . trackSplitZero
+
 trackName :: (NNC.C t) => RTB.T t E.T -> Maybe String
-trackName = listToMaybe . mapMaybe readTrackName . fst . splitZero
+trackName = listToMaybe . mapMaybe readTrackName . trackTakeZero
+
+setTrackName :: (NNC.C t) => String -> RTB.T t E.T -> RTB.T t E.T
+setTrackName s rtb = case trackSplitZero rtb of
+  (zero, rest) -> let
+    zero' = showTrackName s : filter (isNothing . readTrackName) zero
+    in trackJoinZero zero' rest
 
 readTrackName :: E.T -> Maybe String
 readTrackName (E.MetaEvent (Meta.TrackName s)) = Just s
