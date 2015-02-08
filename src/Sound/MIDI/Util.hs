@@ -9,7 +9,8 @@ module Sound.MIDI.Util
 , applyMeasureMap, unapplyMeasureMap
 , readTempo, showTempo
 , readSignature, showSignature
-, trackName, readTrackName, showTrackName, trackJoin, trackDrop
+, trackName, readTrackName, showTrackName
+, trackJoin, trackSplit, trackTake, trackDrop
 ) where
 
 import qualified Data.Map as Map
@@ -258,11 +259,19 @@ trackJoin rtb = case RTB.viewL rtb of
   Nothing -> RTB.empty
   Just ((dt, x), rtb') -> RTB.delay dt $ RTB.merge x $ trackJoin rtb'
 
+trackSplit :: (NNC.C t) => t -> RTB.T t a -> (RTB.T t a, RTB.T t a)
+trackSplit t rtb = case RTB.viewL rtb of
+  Nothing -> (RTB.empty, RTB.empty)
+  Just ((dt, x), rtb') -> case NNC.split t dt of
+    (_, (True , d)) {- t <= dt -} -> (RTB.empty, RTB.cons d x rtb')
+    (_, (False, d)) {- t >  dt -} -> case trackSplit d rtb' of
+      (taken, dropped) -> (RTB.cons dt x taken, dropped)
+
+-- | Drops all events at or after the given time from the event list.
+trackTake :: (NNC.C t) => t -> RTB.T t a -> RTB.T t a
+trackTake t rtb = fst $ trackSplit t rtb
+
 -- | Drops the given amount of time from the start of the event list.
 -- Events that are exactly at the time that is dropped will be kept in the list.
 trackDrop :: (NNC.C t) => t -> RTB.T t a -> RTB.T t a
-trackDrop t rtb = case RTB.viewL rtb of
-  Nothing -> RTB.empty
-  Just ((dt, x), rtb') -> case NNC.split t dt of
-    (_, (True , d)) {- t <= dt -} -> RTB.cons d x rtb'
-    (_, (False, d)) {- t >  dt -} -> trackDrop d rtb'
+trackDrop t rtb = snd $ trackSplit t rtb
