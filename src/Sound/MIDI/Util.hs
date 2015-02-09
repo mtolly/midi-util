@@ -1,3 +1,9 @@
+{- |
+It is recommended to view this Haddock documentation using the @-q local@ option
+so that, for example, the types @Data.EventList.Relative.TimeBody.T@,
+@Sound.MIDI.File.T@, and @Sound.MIDI.File.Event.T@ don't all get displayed
+simply as @T@. Otherwise, hover over the types to see what is referred to.
+-}
 {-# LANGUAGE BangPatterns #-}
 {-# LANGUAGE GeneralizedNewtypeDeriving #-}
 module Sound.MIDI.Util (
