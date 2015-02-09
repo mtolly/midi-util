@@ -18,6 +18,7 @@ module Sound.MIDI.Util (
 -- * Misc. track operations
 , trackSplitZero, trackGlueZero, trackTakeZero, trackDropZero
 , trackJoin, trackSplit, trackTake, trackDrop
+, extractFirst
 ) where
 
 import qualified Data.Map as Map
@@ -320,3 +321,13 @@ trackTake t rtb = fst $ trackSplit t rtb
 -- Events that are exactly at the time that is dropped will be kept in the list.
 trackDrop :: (NNC.C t) => t -> RTB.T t a -> RTB.T t a
 trackDrop t rtb = snd $ trackSplit t rtb
+
+-- | Finds and extracts the first event for which the function returns 'Just'.
+extractFirst :: (NNC.C t) => (a -> Maybe b) -> RTB.T t a -> Maybe ((t, b), RTB.T t a)
+extractFirst f rtb = do
+  ((dt, x), rtb') <- RTB.viewL rtb
+  case f x of
+    Just y  -> return ((dt, y), rtb')
+    Nothing -> do
+      ((dt_, y_), rtb_) <- extractFirst f rtb'
+      return ((NNC.add dt dt_, y_), RTB.cons dt x rtb_)
