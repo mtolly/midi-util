@@ -14,7 +14,7 @@ module Sound.MIDI.Util (
 -- * Tempos
 , readTempo, showTempo
 , makeTempo, applyTempo, unapplyTempo, applyTempoTrack, unapplyTempoTrack
-, TempoMap, makeTempoMap, applyTempoMap, unapplyTempoMap
+, TempoMap, makeTempoMap, tempoMapFromBPS, tempoMapToBPS, applyTempoMap, unapplyTempoMap
 -- * Measures and time signatures
 , readSignature, showSignature
 , MeasureMap, MeasureBeats, MeasureMode(..), measures, makeMeasureMap
@@ -180,13 +180,27 @@ translationError f t = error $
 
 -- | Converts between positions in musical time and real time.
 newtype TempoMap = TempoMap (Map.Map (DoubleKey Beats Seconds) BPS)
+  deriving (Eq, Ord)
+
+instance Show TempoMap where
+  showsPrec p = showsPrec p . tempoMapToBPS
 
 makeTempoMap :: RTB.T Beats E.T -> TempoMap
-makeTempoMap = TempoMap . Map.fromAscList . go 0 0 2 . RTB.mapMaybe readTempo where
+makeTempoMap = tempoMapFromBPS . RTB.mapMaybe readTempo
+
+tempoMapFromBPS :: RTB.T Beats BPS -> TempoMap
+tempoMapFromBPS = TempoMap . Map.fromAscList . go 0 0 2 where
   go :: Beats -> Seconds -> BPS -> RTB.T Beats BPS -> [(DoubleKey Beats Seconds, BPS)]
   go b s bps rtb = (DoubleKey b s, bps) : case RTB.viewL rtb of
     Nothing                 -> []
     Just ((db, bps'), rtb') -> go (b + db) (s + applyTempo bps db) bps' rtb'
+
+tempoMapToBPS :: TempoMap -> RTB.T Beats BPS
+tempoMapToBPS (TempoMap m) = let
+  f (DoubleKey bts _, bps) = (bts, bps)
+  f _                      = error
+    "Sound.MIDI.Util.tempoMapToBPS: internal error! TempoMap key wasn't DoubleKey"
+  in RTB.fromAbsoluteEventList $ ATB.fromPairList $ map f $ Map.toAscList m
 
 applyTempoMap :: TempoMap -> Beats -> Seconds
 applyTempoMap (TempoMap tm) bts = case Map.lookupLE (LookupA bts) tm of
