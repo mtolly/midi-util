@@ -18,6 +18,7 @@ module Sound.MIDI.Util (
 -- * Measures and time signatures
 , readSignature, showSignature
 , MeasureMap, MeasureBeats, MeasureMode(..), measures, makeMeasureMap
+, measureMapFromLengths, measureMapToLengths
 , applyMeasureMap, unapplyMeasureMap
 -- * Track names
 , trackName, setTrackName, readTrackName, showTrackName
@@ -227,6 +228,10 @@ unapplyTempoTrack tm
 -- | Converts between a simple beat position,
 -- and a measure offset plus a beat position.
 newtype MeasureMap = MeasureMap (Map.Map (DoubleKey Beats Int) Beats)
+  deriving (Eq, Ord)
+
+instance Show MeasureMap where
+  showsPrec p = showsPrec p . measureMapToLengths
 
 -- | A number of measures (starting from 0), and an offset within that measure
 -- (also starting from 0).
@@ -245,7 +250,10 @@ measures m b = fromIntegral m * b
 
 -- | Computes the measure map, given the tempo track from the MIDI.
 makeMeasureMap :: MeasureMode -> RTB.T Beats E.T -> MeasureMap
-makeMeasureMap mm = MeasureMap . Map.fromAscList . go 0 0 4 . RTB.mapMaybe readSignature where
+makeMeasureMap mm = measureMapFromLengths mm . RTB.mapMaybe readSignature
+
+measureMapFromLengths :: MeasureMode -> RTB.T Beats Beats -> MeasureMap
+measureMapFromLengths mm = MeasureMap . Map.fromAscList . go 0 0 4 where
   go :: Beats -> Int -> Beats -> RTB.T Beats Beats -> [(DoubleKey Beats Int, Beats)]
   go b m tsig rtb = (DoubleKey b m, tsig) : case RTB.viewL rtb of
     Nothing                  -> []
@@ -264,6 +272,13 @@ makeMeasureMap mm = MeasureMap . Map.fromAscList . go 0 0 4 . RTB.mapMaybe readS
           leftoverBeats = leftoverMsrs * tsig
           truncated = (DoubleKey (b + measures dm tsig) (m + dm), leftoverBeats)
           in truncated : go (b + db) (m + dm + 1) tsig' rtb'
+
+measureMapToLengths :: MeasureMap -> RTB.T Beats Beats
+measureMapToLengths (MeasureMap m) = let
+  f (DoubleKey bts _, len) = (bts, len)
+  f _                      = error
+    "Sound.MIDI.Util.measureMapToLengths: internal error! MeasureMap key wasn't DoubleKey"
+  in RTB.fromAbsoluteEventList $ ATB.fromPairList $ map f $ Map.toAscList m
 
 -- | Uses the measure map to compute which measure a beat position is in.
 applyMeasureMap :: MeasureMap -> Beats -> MeasureBeats
