@@ -362,7 +362,7 @@ extractFirst :: (NNC.C t) => (a -> Maybe b) -> RTB.T t a -> Maybe ((t, b), RTB.T
 extractFirst f rtb = do
   ((dt, x), rtb') <- RTB.viewL rtb
   case f x of
-    Just y  -> return ((dt, y), rtb')
+    Just y  -> return ((dt, y), RTB.delay dt rtb')
     Nothing -> do
       ((dt_, y_), rtb_) <- extractFirst f rtb'
       return ((NNC.add dt dt_, y_), RTB.cons dt x rtb_)
