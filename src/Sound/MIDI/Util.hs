@@ -5,6 +5,7 @@ so that, for example, the types @Data.EventList.Relative.TimeBody.T@,
 simply as @T@. Otherwise, hover over the types to see what is referred to.
 -}
 {-# LANGUAGE BangPatterns #-}
+{-# LANGUAGE CPP #-}
 {-# LANGUAGE GeneralizedNewtypeDeriving #-}
 module Sound.MIDI.Util (
 -- * Types
@@ -30,7 +31,9 @@ module Sound.MIDI.Util (
 
 import qualified Data.Map as Map
 import Data.Maybe (listToMaybe, mapMaybe, isNothing)
+#if __GLASGOW_HASKELL__ < 710
 import Data.Monoid (Monoid)
+#endif
 import Data.Ratio (numerator, denominator)
 
 import qualified Numeric.NonNegative.Wrapper as NN
