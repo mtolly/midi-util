@@ -9,18 +9,20 @@ simply as @T@. Otherwise, hover over the types to see what is referred to.
 {-# LANGUAGE GeneralizedNewtypeDeriving #-}
 module Sound.MIDI.Util (
 -- * Types
-  Beats(..), Seconds(..), BPS(..)
+  Beats(..), TimeSig(..), Seconds(..), BPS(..)
 -- * Reading\/writing MIDI files
 , decodeFile, encodeFileBeats, minResolution
 -- * Tempos
 , readTempo, showTempo
 , makeTempo, applyTempo, unapplyTempo, applyTempoTrack, unapplyTempoTrack
-, TempoMap, makeTempoMap, tempoMapFromBPS, tempoMapToBPS, applyTempoMap, unapplyTempoMap
+, TempoMap, makeTempoMap, unmakeTempoMap, tempoMapFromBPS, tempoMapToBPS, applyTempoMap, unapplyTempoMap
 -- * Measures and time signatures
-, readSignature, showSignature
-, MeasureMap, MeasureBeats, MeasureMode(..), measures, makeMeasureMap
+, readSignature, readSignatureFull, showSignature, showSignatureFull
+, MeasureMap, MeasureBeats, MeasureMode(..), measures, makeMeasureMap, unmakeMeasureMap
 , measureMapFromLengths, measureMapToLengths
+, measureMapFromTimeSigs, measureMapToTimeSigs
 , applyMeasureMap, unapplyMeasureMap
+, measureLengthToTimeSig
 -- * Track names
 , trackName, setTrackName, readTrackName, showTrackName
 -- * Misc. track operations
@@ -34,7 +36,7 @@ import Data.Maybe (listToMaybe, mapMaybe, isNothing)
 #if __GLASGOW_HASKELL__ < 710
 import Data.Monoid (Monoid)
 #endif
-import Data.Ratio (numerator, denominator)
+import Data.Ratio (denominator)
 
 import qualified Numeric.NonNegative.Wrapper as NN
 import qualified Numeric.NonNegative.Class as NNC
@@ -76,6 +78,9 @@ instance (Ord a, Ord b) => Ord (DoubleKey a b) where
 -- | Musical time, measured in beats a.k.a. quarter notes.
 newtype Beats = Beats { fromBeats :: NN.Rational }
   deriving (Eq, Ord, Show, Monoid, NNC.C, Num, Real, Fractional, RealFrac)
+
+data TimeSig = TimeSig { timeSigLength :: !Beats, timeSigUnit :: !Beats }
+  deriving (Eq, Show)
 
 -- | Real time, measured in seconds.
 newtype Seconds = Seconds { fromSeconds :: NN.Rational }
@@ -146,11 +151,14 @@ showTempo (BPS qnps) = let
 -- | Given a MIDI event, if it is a time signature event, returns the length
 -- of one measure set by the time signature.
 readSignature :: E.T -> Maybe Beats
-readSignature (E.MetaEvent (Meta.TimeSig n d _ _)) = Just $ let
-  writtenFraction = fromIntegral n / (2 ^ d)
-  sigLength = 4 * writtenFraction
-  in Beats sigLength
-readSignature _ = Nothing
+readSignature = fmap timeSigLength . readSignatureFull
+
+readSignatureFull :: E.T -> Maybe TimeSig
+readSignatureFull (E.MetaEvent (Meta.TimeSig n d _ _)) = Just $ let
+  unit = 4 / (2 ^ d)
+  len = fromIntegral n * unit
+  in TimeSig (Beats len) (Beats unit)
+readSignatureFull _ = Nothing
 
 -- | If the given number is @2 ^ n@ where @n@ is a non-negative integer,
 -- returns @n@.
@@ -163,17 +171,21 @@ logBase2 x = go 0 1 where
 
 -- | Given a measure length, tries to encode it as a MIDI time signature.
 showSignature :: Beats -> Maybe E.T
-showSignature (Beats sigLength) = let
-  writtenFraction = NN.toNumber $ sigLength / 4
-  num = fromIntegral $ numerator writtenFraction
-  in do
-    denomPow <- logBase2 $ denominator writtenFraction
-    Just $ E.MetaEvent $ case denomPow of
-      0 -> Meta.TimeSig (num * 4) 2                       24 8
-      1 -> Meta.TimeSig (num * 2) 2                       24 8
-      _ -> Meta.TimeSig num       (fromIntegral denomPow) 24 8
-      -- For prettiness we make the denominator at least /4,
-      -- so for example 4/4 is not encoded as 1/1 even though it is simpler.
+showSignature = showSignatureFull . measureLengthToTimeSig
+
+showSignatureFull :: TimeSig -> Maybe E.T
+showSignatureFull (TimeSig (Beats len) (Beats unit)) = case properFraction $ len / unit of
+  (numer, 0) -> case properFraction $ 1 / unit of
+    (denom, 0) -> do
+      denomPow <- logBase2 denom
+      Just $ E.MetaEvent $ Meta.TimeSig numer (fromIntegral denomPow + 2) 24 8
+    _ -> Nothing
+  _ -> Nothing
+
+measureLengthToTimeSig :: Beats -> TimeSig
+measureLengthToTimeSig b = let
+  d = denominator $ NN.toNumber $ fromBeats b
+  in TimeSig b $ 1 / fromIntegral d
 
 -- | Should never happen. Signifies an internal error in the creation of a
 -- 'Map.Map': either there was no event at position 0, or the 'Map.Map' contains
@@ -184,13 +196,16 @@ translationError f t = error $
 
 -- | Converts between positions in musical time and real time.
 newtype TempoMap = TempoMap (Map.Map (DoubleKey Beats Seconds) BPS)
-  deriving (Eq, Ord)
+  deriving (Eq)
 
 instance Show TempoMap where
   showsPrec p = showsPrec p . tempoMapToBPS
 
 makeTempoMap :: RTB.T Beats E.T -> TempoMap
 makeTempoMap = tempoMapFromBPS . RTB.mapMaybe readTempo
+
+unmakeTempoMap :: TempoMap -> RTB.T Beats E.T
+unmakeTempoMap = fmap showTempo . tempoMapToBPS
 
 tempoMapFromBPS :: RTB.T Beats BPS -> TempoMap
 tempoMapFromBPS = TempoMap . Map.fromAscList . go 0 0 2 where
@@ -230,8 +245,8 @@ unapplyTempoTrack tm
 
 -- | Converts between a simple beat position,
 -- and a measure offset plus a beat position.
-newtype MeasureMap = MeasureMap (Map.Map (DoubleKey Beats Int) Beats)
-  deriving (Eq, Ord)
+newtype MeasureMap = MeasureMap (Map.Map (DoubleKey Beats Int) TimeSig)
+  deriving (Eq)
 
 instance Show MeasureMap where
   showsPrec p = showsPrec p . measureMapToLengths
@@ -253,14 +268,20 @@ measures m b = fromIntegral m * b
 
 -- | Computes the measure map, given the tempo track from the MIDI.
 makeMeasureMap :: MeasureMode -> RTB.T Beats E.T -> MeasureMap
-makeMeasureMap mm = measureMapFromLengths mm . RTB.mapMaybe readSignature
+makeMeasureMap mm = measureMapFromTimeSigs mm . RTB.mapMaybe readSignatureFull
 
-measureMapFromLengths :: MeasureMode -> RTB.T Beats Beats -> MeasureMap
-measureMapFromLengths mm = MeasureMap . Map.fromAscList . go 0 0 4 where
-  go :: Beats -> Int -> Beats -> RTB.T Beats Beats -> [(DoubleKey Beats Int, Beats)]
+unmakeMeasureMap :: MeasureMap -> RTB.T Beats E.T
+unmakeMeasureMap = fmap showSignatureFull' . measureMapToTimeSigs where
+  showSignatureFull' tsig = case showSignatureFull tsig of
+    Just e  -> e
+    Nothing -> error $ "Sound.MIDI.Util.unmakeMeasureMap: couldn't encode time signature " ++ show tsig
+
+measureMapFromTimeSigs :: MeasureMode -> RTB.T Beats TimeSig -> MeasureMap
+measureMapFromTimeSigs mm = MeasureMap . Map.fromAscList . go 0 0 (TimeSig 4 1) where
+  go :: Beats -> Int -> TimeSig -> RTB.T Beats TimeSig -> [(DoubleKey Beats Int, TimeSig)]
   go b m tsig rtb = (DoubleKey b m, tsig) : case RTB.viewL rtb of
     Nothing                  -> []
-    Just ((db, tsig'), rtb') -> case properFraction $ db / tsig of
+    Just ((db, tsig'), rtb') -> case properFraction $ db / timeSigLength tsig of
       (dm, 0           ) -> go (b + db) (m + dm) tsig' rtb'
       (dm, leftoverMsrs) -> case mm of
         Error -> error $ unwords
@@ -272,30 +293,36 @@ measureMapFromLengths mm = MeasureMap . Map.fromAscList . go 0 0 4 where
           ]
         Ignore   -> go b m tsig $ RTB.delay db rtb'
         Truncate -> let
-          leftoverBeats = leftoverMsrs * tsig
-          truncated = (DoubleKey (b + measures dm tsig) (m + dm), leftoverBeats)
+          leftoverBeats = measureLengthToTimeSig $ leftoverMsrs * timeSigLength tsig
+          truncated = (DoubleKey (b + measures dm (timeSigLength tsig)) (m + dm), leftoverBeats)
           in truncated : go (b + db) (m + dm + 1) tsig' rtb'
 
-measureMapToLengths :: MeasureMap -> RTB.T Beats Beats
-measureMapToLengths (MeasureMap m) = let
+measureMapFromLengths :: MeasureMode -> RTB.T Beats Beats -> MeasureMap
+measureMapFromLengths mm = measureMapFromTimeSigs mm . fmap measureLengthToTimeSig
+
+measureMapToTimeSigs :: MeasureMap -> RTB.T Beats TimeSig
+measureMapToTimeSigs (MeasureMap m) = let
   f (DoubleKey bts _, len) = (bts, len)
   f _                      = error
     "Sound.MIDI.Util.measureMapToLengths: internal error! MeasureMap key wasn't DoubleKey"
   in RTB.fromAbsoluteEventList $ ATB.fromPairList $ map f $ Map.toAscList m
 
+measureMapToLengths :: MeasureMap -> RTB.T Beats Beats
+measureMapToLengths = fmap timeSigLength . measureMapToTimeSigs
+
 -- | Uses the measure map to compute which measure a beat position is in.
 applyMeasureMap :: MeasureMap -> Beats -> MeasureBeats
 applyMeasureMap (MeasureMap mm) bts = case Map.lookupLE (LookupA bts) mm of
   Just (DoubleKey b msr, tsig) -> let
-    msrs = floor $ (bts - b) / tsig
-    leftover = (bts - b) - fromIntegral msrs * tsig
+    msrs = floor $ (bts - b) / timeSigLength tsig
+    leftover = (bts - b) - fromIntegral msrs * timeSigLength tsig
     in (msr + msrs, leftover)
   _ -> translationError "applyMeasureMap" bts
 
 -- | Uses the measure map to convert a measures+beats position to just beats.
 unapplyMeasureMap :: MeasureMap -> MeasureBeats -> Beats
 unapplyMeasureMap (MeasureMap mm) (msr, bts) = case Map.lookupLE (LookupB msr) mm of
-  Just (DoubleKey b m, tsig) -> b + fromIntegral (msr - m) * tsig + bts
+  Just (DoubleKey b m, tsig) -> b + fromIntegral (msr - m) * timeSigLength tsig + bts
   _ -> translationError "unapplyMeasureMap" (msr, bts)
 
 -- | Combines 'trackTakeZero' and 'trackDropZero'.

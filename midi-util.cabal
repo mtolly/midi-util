@@ -1,5 +1,5 @@
 name:                 midi-util
-version:              0.1.1.1
+version:              0.2
 synopsis:             Utility functions for processing MIDI files
 description:
   Common high-level tasks when processing MIDI files.
@@ -14,7 +14,7 @@ maintainer:           miketolly@gmail.com
 category:             Music
 build-type:           Simple
 cabal-version:        >= 1.10
-license:              GPL
+license:              BSD3
 license-file:         LICENSE
 homepage:             http://github.com/mtolly/midi-util
 bug-reports:          http://github.com/mtolly/midi-util/issues
