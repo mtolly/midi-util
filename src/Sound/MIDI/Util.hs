@@ -341,7 +341,7 @@ trackTakeZero :: (NNC.C t) => RTB.T t a -> [a]
 trackTakeZero = fst . trackSplitZero
 
 -- | Drops all events at position zero of the event list.
-trackDropZero :: (NNC.C t) => RTB.T t a -> (RTB.T t a)
+trackDropZero :: (NNC.C t) => RTB.T t a -> RTB.T t a
 trackDropZero = snd . trackSplitZero
 
 -- | Looks for a track name event at position zero.
