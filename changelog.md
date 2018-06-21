@@ -1,3 +1,7 @@
+## v0.2.1
+
+  * Semigroup fix for GHC 8.4 (requires `non-negative` 0.1.2 with same fix)
+
 ## v0.2
 
   * added `TimeSig` type and associated functions, so time signatures

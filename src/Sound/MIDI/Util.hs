@@ -36,6 +36,9 @@ import Data.Maybe (listToMaybe, mapMaybe, isNothing)
 #if __GLASGOW_HASKELL__ < 710
 import Data.Monoid (Monoid)
 #endif
+#if __GLASGOW_HASKELL__ < 840
+import Data.Semigroup (Semigroup)
+#endif
 import Data.Ratio (denominator)
 
 import qualified Numeric.NonNegative.Wrapper as NN
@@ -77,18 +80,18 @@ instance (Ord a, Ord b) => Ord (DoubleKey a b) where
 
 -- | Musical time, measured in beats a.k.a. quarter notes.
 newtype Beats = Beats { fromBeats :: NN.Rational }
-  deriving (Eq, Ord, Show, Monoid, NNC.C, Num, Real, Fractional, RealFrac)
+  deriving (Eq, Ord, Show, Semigroup, Monoid, NNC.C, Num, Real, Fractional, RealFrac)
 
 data TimeSig = TimeSig { timeSigLength :: !Beats, timeSigUnit :: !Beats }
   deriving (Eq, Show)
 
 -- | Real time, measured in seconds.
 newtype Seconds = Seconds { fromSeconds :: NN.Rational }
-  deriving (Eq, Ord, Show, Monoid, NNC.C, Num, Real, Fractional, RealFrac)
+  deriving (Eq, Ord, Show, Semigroup, Monoid, NNC.C, Num, Real, Fractional, RealFrac)
 
 -- | A ratio between musical time and real time, measured in beats per second.
 newtype BPS = BPS { fromBPS :: NN.Rational }
-  deriving (Eq, Ord, Show, Monoid, NNC.C, Num, Real, Fractional, RealFrac)
+  deriving (Eq, Ord, Show, Semigroup, Monoid, NNC.C, Num, Real, Fractional, RealFrac)
 
 -- | Creates a tempo as a ratio of a music duration to a real time duration.
 makeTempo :: Beats -> Seconds -> BPS
