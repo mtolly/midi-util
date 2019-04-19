@@ -1,3 +1,7 @@
+## v0.2.1
+
+  * add `timeSigAt` function
+
 ## v0.2.0.1
 
   * Semigroup fix for GHC 8.4 (requires `non-negative` 0.1.2 with same fix)

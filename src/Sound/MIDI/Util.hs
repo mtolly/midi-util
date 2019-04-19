@@ -23,6 +23,7 @@ module Sound.MIDI.Util (
 , measureMapFromTimeSigs, measureMapToTimeSigs
 , applyMeasureMap, unapplyMeasureMap
 , measureLengthToTimeSig
+, timeSigAt
 -- * Track names
 , trackName, setTrackName, readTrackName, showTrackName
 -- * Misc. track operations
@@ -327,6 +328,12 @@ unapplyMeasureMap :: MeasureMap -> MeasureBeats -> Beats
 unapplyMeasureMap (MeasureMap mm) (msr, bts) = case Map.lookupLE (LookupB msr) mm of
   Just (DoubleKey b m, tsig) -> b + fromIntegral (msr - m) * timeSigLength tsig + bts
   _ -> translationError "unapplyMeasureMap" (msr, bts)
+
+-- | Returns the time signature active at the given beats position.
+timeSigAt :: Beats -> MeasureMap -> TimeSig
+timeSigAt bts (MeasureMap mm) = case Map.lookupLE (LookupA bts) mm of
+  Just (_, tsig) -> tsig
+  Nothing        -> translationError "timeSigAt" bts
 
 -- | Combines 'trackTakeZero' and 'trackDropZero'.
 trackSplitZero :: (NNC.C t) => RTB.T t a -> ([a], RTB.T t a)
