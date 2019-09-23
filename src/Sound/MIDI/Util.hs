@@ -15,7 +15,9 @@ module Sound.MIDI.Util (
 -- * Tempos
 , readTempo, showTempo
 , makeTempo, applyTempo, unapplyTempo, applyTempoTrack, unapplyTempoTrack
-, TempoMap, makeTempoMap, unmakeTempoMap, tempoMapFromBPS, tempoMapToBPS, applyTempoMap, unapplyTempoMap
+, TempoMap, makeTempoMap, makeTempoMapFromSeconds, unmakeTempoMap
+, tempoMapFromBPS, tempoMapFromSecondsBPS, tempoMapToBPS
+, applyTempoMap, unapplyTempoMap
 -- * Measures and time signatures
 , readSignature, readSignatureFull, showSignature, showSignatureFull
 , MeasureMap, MeasureBeats, MeasureMode(..), measures, makeMeasureMap, unmakeMeasureMap
@@ -208,6 +210,9 @@ instance Show TempoMap where
 makeTempoMap :: RTB.T Beats E.T -> TempoMap
 makeTempoMap = tempoMapFromBPS . RTB.mapMaybe readTempo
 
+makeTempoMapFromSeconds :: RTB.T Seconds E.T -> TempoMap
+makeTempoMapFromSeconds = tempoMapFromSecondsBPS . RTB.mapMaybe readTempo
+
 unmakeTempoMap :: TempoMap -> RTB.T Beats E.T
 unmakeTempoMap = fmap showTempo . tempoMapToBPS
 
@@ -217,6 +222,13 @@ tempoMapFromBPS = TempoMap . Map.fromAscList . go 0 0 2 where
   go b s bps rtb = (DoubleKey b s, bps) : case RTB.viewL rtb of
     Nothing                 -> []
     Just ((db, bps'), rtb') -> go (b + db) (s + applyTempo bps db) bps' rtb'
+
+tempoMapFromSecondsBPS :: RTB.T Seconds BPS -> TempoMap
+tempoMapFromSecondsBPS = TempoMap . Map.fromAscList . go 0 0 2 where
+  go :: Beats -> Seconds -> BPS -> RTB.T Seconds BPS -> [(DoubleKey Beats Seconds, BPS)]
+  go b s bps rtb = (DoubleKey b s, bps) : case RTB.viewL rtb of
+    Nothing                 -> []
+    Just ((ds, bps'), rtb') -> go (b + unapplyTempo bps ds) (s + ds) bps' rtb'
 
 tempoMapToBPS :: TempoMap -> RTB.T Beats BPS
 tempoMapToBPS (TempoMap m) = let
