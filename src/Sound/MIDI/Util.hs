@@ -235,7 +235,7 @@ tempoMapToBPS (TempoMap m) = let
   f (DoubleKey bts _, bps) = (bts, bps)
   f _                      = error
     "Sound.MIDI.Util.tempoMapToBPS: internal error! TempoMap key wasn't DoubleKey"
-  in RTB.fromAbsoluteEventList $ ATB.fromPairList $ map f $ Map.toAscList m
+  in RTB.fromAbsoluteEventList $ ATB.fromPairList $ noDupes $ map f $ Map.toAscList m
 
 applyTempoMap :: TempoMap -> Beats -> Seconds
 applyTempoMap (TempoMap tm) bts = case Map.lookupLE (LookupA bts) tm of
@@ -292,6 +292,13 @@ unmakeMeasureMap = fmap showSignatureFull' . measureMapToTimeSigs where
     Just e  -> e
     Nothing -> error $ "Sound.MIDI.Util.unmakeMeasureMap: couldn't encode time signature " ++ show tsig
 
+noDupes :: (Eq a) => [(t, a)] -> [(t, a)]
+noDupes = go Nothing where
+  go cur (p@(_, sig) : rest) = if cur == Just sig
+    then go cur rest
+    else p : go (Just sig) rest
+  go _   []                  = []
+
 measureMapFromTimeSigs :: MeasureMode -> RTB.T Beats TimeSig -> MeasureMap
 measureMapFromTimeSigs mm = MeasureMap . Map.fromAscList . go 0 0 (TimeSig 4 1) where
   go :: Beats -> Int -> TimeSig -> RTB.T Beats TimeSig -> [(DoubleKey Beats Int, TimeSig)]
@@ -318,10 +325,10 @@ measureMapFromLengths mm = measureMapFromTimeSigs mm . fmap measureLengthToTimeS
 
 measureMapToTimeSigs :: MeasureMap -> RTB.T Beats TimeSig
 measureMapToTimeSigs (MeasureMap m) = let
-  f (DoubleKey bts _, len) = (bts, len)
+  f (DoubleKey bts _, sig) = (bts, sig)
   f _                      = error
     "Sound.MIDI.Util.measureMapToLengths: internal error! MeasureMap key wasn't DoubleKey"
-  in RTB.fromAbsoluteEventList $ ATB.fromPairList $ map f $ Map.toAscList m
+  in RTB.fromAbsoluteEventList $ ATB.fromPairList $ noDupes $ map f $ Map.toAscList m
 
 measureMapToLengths :: MeasureMap -> RTB.T Beats Beats
 measureMapToLengths = fmap timeSigLength . measureMapToTimeSigs
