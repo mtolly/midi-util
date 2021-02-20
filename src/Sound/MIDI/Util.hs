@@ -181,10 +181,10 @@ showSignature = showSignatureFull . measureLengthToTimeSig
 
 showSignatureFull :: TimeSig -> Maybe E.T
 showSignatureFull (TimeSig (Beats len) (Beats unit)) = case properFraction $ len / unit of
-  (numer, 0) -> case properFraction $ 1 / unit of
+  (numer, 0) -> case properFraction $ 4 / unit of
     (denom, 0) -> do
       denomPow <- logBase2 denom
-      Just $ E.MetaEvent $ Meta.TimeSig numer (fromIntegral denomPow + 2) 24 8
+      Just $ E.MetaEvent $ Meta.TimeSig numer (fromIntegral denomPow) 24 8
     _ -> Nothing
   _ -> Nothing
 
