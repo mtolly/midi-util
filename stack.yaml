@@ -1,4 +1,7 @@
-resolver: lts-16.27
+resolver: nightly-2022-09-17
 packages:
 - '.'
-extra-deps: []
+extra-deps:
+- git: https://github.com/mtolly/midi
+  # string-param branch
+  commit: cf12ee885cafc0ecb47b00e44e864e78b27df967

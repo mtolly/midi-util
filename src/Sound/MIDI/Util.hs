@@ -110,7 +110,7 @@ unapplyTempo (BPS bps) (Seconds s) = Beats $ bps * s
 
 -- | Assigns units to the tracks in a MIDI file. Supports both the common
 -- ticks-based files as well as real-time SMPTE-encoded files.
-decodeFile :: F.T -> Either [RTB.T Beats E.T] [RTB.T Seconds E.T]
+decodeFile :: F.T s -> Either [RTB.T Beats (E.T s)] [RTB.T Seconds (E.T s)]
 decodeFile (F.Cons _typ dvn trks) = case dvn of
   F.Ticks res -> let
     readTime tks = Beats $ fromIntegral tks / fromIntegral res
@@ -125,21 +125,21 @@ decodeFile (F.Cons _typ dvn trks) = case dvn of
 
 -- | Encodes the tracks' beat positions in ticks, using the given resolution.
 -- Positions will be rounded if necessary; see 'minResolution'.
-encodeFileBeats :: F.Type -> Integer -> [RTB.T Beats E.T] -> F.T
+encodeFileBeats :: F.Type -> Integer -> [RTB.T Beats (E.T s)] -> F.T s
 encodeFileBeats typ res
   = F.Cons typ (F.Ticks $ fromIntegral res)
   . map (RTB.discretize . RTB.mapTime (* fromIntegral res))
 
 -- | To correctly encode all the given tracks without rounding,
 -- the resolution must be a multiple of the returned number.
-minResolution :: [RTB.T Beats E.T] -> Integer
+minResolution :: [RTB.T Beats (E.T s)] -> Integer
 minResolution
   = foldr lcm 1
   . map (denominator . NN.toNumber . fromBeats)
   . concatMap RTB.getTimes
 
 -- | Extracts the tempo from a tempo change event.
-readTempo :: E.T -> Maybe BPS
+readTempo :: E.T s -> Maybe BPS
 readTempo (E.MetaEvent (Meta.SetTempo uspqn)) = let
   spqn = fromIntegral uspqn / 1000000
   qnps = recip spqn
@@ -148,7 +148,7 @@ readTempo _ = Nothing
 
 -- | Creates a MIDI event to set the tempo to the given value.
 -- Rounds the tempo to the nearest whole \"microseconds per beat\" if necessary.
-showTempo :: BPS -> E.T
+showTempo :: BPS -> E.T s
 showTempo (BPS qnps) = let
   spqn = recip qnps
   uspqn = spqn * 1000000
@@ -156,10 +156,10 @@ showTempo (BPS qnps) = let
 
 -- | Given a MIDI event, if it is a time signature event, returns the length
 -- of one measure set by the time signature.
-readSignature :: E.T -> Maybe Beats
+readSignature :: E.T s -> Maybe Beats
 readSignature = fmap timeSigLength . readSignatureFull
 
-readSignatureFull :: E.T -> Maybe TimeSig
+readSignatureFull :: E.T s -> Maybe TimeSig
 readSignatureFull (E.MetaEvent (Meta.TimeSig n d _ _)) = Just $ let
   unit = 4 / (2 ^ d)
   len = fromIntegral n * unit
@@ -176,10 +176,10 @@ logBase2 x = go 0 1 where
     LT -> Nothing
 
 -- | Given a measure length, tries to encode it as a MIDI time signature.
-showSignature :: Beats -> Maybe E.T
+showSignature :: Beats -> Maybe (E.T s)
 showSignature = showSignatureFull . measureLengthToTimeSig
 
-showSignatureFull :: TimeSig -> Maybe E.T
+showSignatureFull :: TimeSig -> Maybe (E.T s)
 showSignatureFull (TimeSig (Beats len) (Beats unit)) = case properFraction $ len / unit of
   (numer, 0) -> case properFraction $ 4 / unit of
     (denom, 0) -> do
@@ -207,13 +207,13 @@ newtype TempoMap = TempoMap (Map.Map (DoubleKey Beats Seconds) BPS)
 instance Show TempoMap where
   showsPrec p = showsPrec p . tempoMapToBPS
 
-makeTempoMap :: RTB.T Beats E.T -> TempoMap
+makeTempoMap :: RTB.T Beats (E.T s) -> TempoMap
 makeTempoMap = tempoMapFromBPS . RTB.mapMaybe readTempo
 
-makeTempoMapFromSeconds :: RTB.T Seconds E.T -> TempoMap
+makeTempoMapFromSeconds :: RTB.T Seconds (E.T s) -> TempoMap
 makeTempoMapFromSeconds = tempoMapFromSecondsBPS . RTB.mapMaybe readTempo
 
-unmakeTempoMap :: TempoMap -> RTB.T Beats E.T
+unmakeTempoMap :: TempoMap -> RTB.T Beats (E.T s)
 unmakeTempoMap = fmap showTempo . tempoMapToBPS
 
 tempoMapFromBPS :: RTB.T Beats BPS -> TempoMap
@@ -283,10 +283,10 @@ measures :: Int -> Beats -> Beats
 measures m b = fromIntegral m * b
 
 -- | Computes the measure map, given the tempo track from the MIDI.
-makeMeasureMap :: MeasureMode -> RTB.T Beats E.T -> MeasureMap
+makeMeasureMap :: MeasureMode -> RTB.T Beats (E.T s) -> MeasureMap
 makeMeasureMap mm = measureMapFromTimeSigs mm . RTB.mapMaybe readSignatureFull
 
-unmakeMeasureMap :: MeasureMap -> RTB.T Beats E.T
+unmakeMeasureMap :: MeasureMap -> RTB.T Beats (E.T s)
 unmakeMeasureMap = fmap showSignatureFull' . measureMapToTimeSigs where
   showSignatureFull' tsig = case showSignatureFull tsig of
     Just e  -> e
@@ -374,21 +374,21 @@ trackDropZero :: (NNC.C t) => RTB.T t a -> RTB.T t a
 trackDropZero = snd . trackSplitZero
 
 -- | Looks for a track name event at position zero.
-trackName :: (NNC.C t) => RTB.T t E.T -> Maybe String
+trackName :: (NNC.C t) => RTB.T t (E.T s) -> Maybe s
 trackName = listToMaybe . mapMaybe readTrackName . trackTakeZero
 
 -- | Removes any existing track name events at position zero and adds a new one.
-setTrackName :: (NNC.C t) => String -> RTB.T t E.T -> RTB.T t E.T
+setTrackName :: (NNC.C t) => s -> RTB.T t (E.T s) -> RTB.T t (E.T s)
 setTrackName s rtb = case trackSplitZero rtb of
   (zero, rest) -> let
     zero' = showTrackName s : filter (isNothing . readTrackName) zero
     in trackGlueZero zero' rest
 
-readTrackName :: E.T -> Maybe String
+readTrackName :: E.T s -> Maybe s
 readTrackName (E.MetaEvent (Meta.TrackName s)) = Just s
 readTrackName _                                = Nothing
 
-showTrackName :: String -> E.T
+showTrackName :: s -> E.T s
 showTrackName = E.MetaEvent . Meta.TrackName
 
 -- | Equivalent to 'Control.Monad.join', except 'RTB.T' doesn't have a 'Monad'
